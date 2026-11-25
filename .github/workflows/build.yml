@@ -34,13 +34,40 @@ jobs:
           sed -i "s/APP_HASH = \"[^\"]*\";/APP_HASH = \"${TG_API_HASH}\";/" $F
           grep -n "APP_ID\|APP_HASH" $F | sed 's/"[0-9a-f]\{32\}"/"***"/'
 
+      - name: Change application id
+        run: |
+          NEWID=com.ruslan.tgmod
+          echo "--- applicationId lines before ---"
+          grep -rn "applicationId" TMessagesProj_App/build.gradle || true
+          sed -i "s/org\.telegram\.messenger\.web/${NEWID}/g" TMessagesProj_App/build.gradle
+          for f in $(find . -name google-services.json -not -path "*/build/*"); do
+            echo "patching $f"
+            sed -i "s/org\.telegram\.messenger\.web/${NEWID}/g" "$f"
+          done
+          echo "--- applicationId lines after ---"
+          grep -rn "applicationId" TMessagesProj_App/build.gradle || true
+
       - name: Build APK
         run: |
           chmod +x gradlew
           ./gradlew :TMessagesProj_App:assembleAfatRelease --no-daemon --stacktrace
 
+      - name: Re-sign APK with my own key
+        run: |
+          BT=$ANDROID_HOME/build-tools/36.0.0
+          APK=$(find TMessagesProj_App/build/outputs/apk -name "*.apk" | head -1)
+          echo "Built APK: $APK"
+          $BT/aapt2 dump badging "$APK" | grep -E "^package:|sdkVersion|targetSdkVersion|native-code" || true
+          keytool -genkeypair -keystore my.jks -alias my -keyalg RSA -keysize 2048 -validity 10000 -storepass mypass123 -keypass mypass123 -dname "CN=tgmod"
+          $BT/zipalign -f -p 4 "$APK" aligned.apk
+          $BT/apksigner sign --ks my.jks --ks-pass pass:mypass123 --out signed.apk aligned.apk
+          $BT/apksigner verify -v signed.apk
+          mkdir -p out
+          cp signed.apk out/telegram-mod.apk
+          ls -la out
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: telegram-mod-apk
-          path: TMessagesProj_App/build/outputs/apk/**/*.apk
+          path: out/telegram-mod.apk
