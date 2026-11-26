@@ -37,15 +37,21 @@ jobs:
       - name: Change application id
         run: |
           NEWID=com.ruslan.tgmod
-          echo "--- applicationId lines before ---"
-          grep -rn "applicationId" TMessagesProj_App/build.gradle || true
-          sed -i "s/org\.telegram\.messenger\.web/${NEWID}/g" TMessagesProj_App/build.gradle
-          for f in $(find . -name google-services.json -not -path "*/build/*"); do
-            echo "patching $f"
-            sed -i "s/org\.telegram\.messenger\.web/${NEWID}/g" "$f"
+          echo "--- APP_PACKAGE before ---"
+          grep -rn "APP_PACKAGE" gradle.properties TMessagesProj_App/ --include=*.gradle --include=*.properties | grep -v "/build/" || true
+          for f in gradle.properties TMessagesProj_App/gradle.properties; do
+            if [ -f "$f" ]; then sed -i "s/^\(APP_PACKAGE *= *\).*/\1${NEWID}/" "$f"; fi
           done
-          echo "--- applicationId lines after ---"
-          grep -rn "applicationId" TMessagesProj_App/build.gradle || true
+          for f in $(find . -name google-services.json -not -path "*/build/*"); do
+            sed -i "s/\"package_name\": *\"org\.telegram\.messenger\"/\"package_name\": \"${NEWID}\"/" "$f"
+          done
+          echo "--- APP_PACKAGE after ---"
+          grep -rn "APP_PACKAGE" gradle.properties TMessagesProj_App/ --include=*.gradle --include=*.properties | grep -v "/build/" || true
+          grep -n "package_name" TMessagesProj_App/google-services.json || true
+          if ! grep -rq "APP_PACKAGE *= *${NEWID}" gradle.properties TMessagesProj_App/gradle.properties 2>/dev/null; then
+            echo "ERROR: APP_PACKAGE was not changed"
+            exit 1
+          fi
 
       - name: Build APK
         run: |
