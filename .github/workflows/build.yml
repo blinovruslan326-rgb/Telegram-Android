@@ -53,6 +53,57 @@ jobs:
             exit 1
           fi
 
+      - name: Apply ghost mode patch
+        run: |
+          cat > TMessagesProj/src/main/java/org/telegram/messenger/GhostMode.java << 'JAVA'
+          package org.telegram.messenger;
+
+          import org.telegram.tgnet.TLObject;
+          import org.telegram.tgnet.TLRPC;
+
+          public class GhostMode {
+              public static boolean enabled = true;
+
+              public static boolean shouldBlock(TLObject object) {
+                  if (!enabled || object == null) {
+                      return false;
+                  }
+                  return object instanceof TLRPC.TL_messages_readHistory
+                      || object instanceof TLRPC.TL_channels_readHistory
+                      || object instanceof TLRPC.TL_messages_readEncryptedHistory
+                      || object instanceof TLRPC.TL_messages_setTyping
+                      || object instanceof TLRPC.TL_messages_setEncryptedTyping
+                      || object instanceof TLRPC.TL_account_updateStatus;
+              }
+          }
+          JAVA
+          python3 - << 'PY'
+          import re, sys
+          p = "TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java"
+          s = open(p).read()
+          pattern = re.compile(r"public int sendRequest\(([^)]*)\)\s*\{")
+          count = 0
+          def repl(m):
+              global count
+              params = m.group(1)
+              mm = re.search(r"TLObject\s+(\w+)", params)
+              if not mm or "RequestDelegate" not in params:
+                  return m.group(0)
+              count += 1
+              name = mm.group(1)
+              return m.group(0) + "\n        if (org.telegram.messenger.GhostMode.shouldBlock(" + name + ")) { return 0; }"
+          s = pattern.sub(repl, s)
+          if count == 0:
+              print("ERROR: sendRequest not found in ConnectionsManager.java")
+              for l in s.splitlines():
+                  if "sendRequest" in l:
+                      print(l)
+              sys.exit(1)
+          open(p, "w").write(s)
+          print("Patched sendRequest overloads:", count)
+          PY
+          grep -n "GhostMode" TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java
+
       - name: Build APK
         run: |
           chmod +x gradlew
